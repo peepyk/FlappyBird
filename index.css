@@ -1,0 +1,22 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    background-color: black;
+}
+
+canvas {
+    background-image: url("img/bg.png");
+    background-size: 100% 100%;
+}
+
+@media screen and (max-width: 700px) {
+    canvas {
+        height: 100vh;
+        width: 100vw;
+    }
+}
