@@ -1,251 +1,642 @@
-let frame;
-let frameHeight = window.innerHeight;
-let frameWidth = frameHeight * 0.5625;       //Size
-let context;
-let birdYVelocity = 0;      //Size
-let birdY;
-let activeGame = false;
-let gameOverFlag = false;
-let birdWidth = frameHeight * 0.1;        //Size
-let birdHeight = frameHeight * 0.07;        //Size
-let gravity = frameHeight * 0.0003225;         //Size ????
-let jumpStrength = -frameHeight * 0.013859375;    //Size ???
-let tolerance = 5;
-let pipeInterval;
-let frameRequestInterval;
-let score = 0;
-let fontsize = frameHeight * 0.112125;
-let groundHeight = frameHeight / 12;
-let groundX = 0;
-let restartJumpIgnore = false;
-const birdX = frameHeight * 0.117;          //Size
-const birdImage = new Image();
-birdImage.src = "img/bird.png";
-const groundImage = new Image();
-groundImage.src = "img/ground.png"
-birdWidth *= 0.5;
-birdHeight *= 0.5;
-jumpStrength *= 0.7;
+class Game {
+    constructor() {
+        this.initializeProperties();
+        this.loadAssets();
+        this.setupEventListeners();
+        this.setupCanvas();
+        this.initUI();
+        this.loadHighScore();
+    }
 
-if (frameWidth > window.innerWidth) {
-    frameWidth = window.innerWidth;
-}
+    initializeProperties() {
+        // Canvas and context
+        this.canvas = null;
+        this.ctx = null;
+        
+        // Dimensions
+        this.frameHeight = window.innerHeight;
+        this.frameWidth = Math.min(this.frameHeight * 0.5625, window.innerWidth);
+        
+        // Game state
+        this.gameState = 'title'; // title, playing, paused, gameOver
+        this.activeGame = false;
+        this.score = 0;
+        this.highScore = 0;
+        this.combo = 0;
+        this.lastScoreTime = 0;
+        
+        // Bird properties
+        this.birdX = this.frameHeight * 0.117;
+        this.birdY = this.frameHeight / 2;
+        this.birdWidth = this.frameHeight * 0.1 * 0.5;
+        this.birdHeight = this.frameHeight * 0.07 * 0.5;
+        this.birdYVelocity = 0;
+        this.birdRotation = 0;
+        this.targetRotation = 0;
+        this.birdGlow = 0;
+        
+        // Physics
+        this.gravity = this.frameHeight * 0.0003225;
+        this.jumpStrength = -this.frameHeight * 0.013859375 * 0.7;
+        this.tolerance = 5;
+        
+        // Pipes
+        this.pipes = [];
+        this.pipeWidth = this.frameHeight * 0.078;
+        this.pipeHeight = this.pipeWidth * 10;
+        this.pipeOffset = this.frameHeight * 0.200;
+        this.pipeVelocity = this.frameHeight * 0.0035625;
+        
+        // Ground
+        this.groundHeight = this.frameHeight / 12;
+        this.groundX = 0;
+        
+        // Particles
+        this.particles = [];
+        
+        // Intervals
+        this.pipeInterval = null;
+        this.renderInterval = null;
+        
+        // Assets
+        this.images = {};
+        this.assetsLoaded = false;
+    }
 
+    loadAssets() {
+        const assetList = {
+            bird: 'img/bird.png',
+            ground: 'img/ground.png',
+            pipeTop: 'img/pipe_top.png',
+            pipeBottom: 'img/pipe_bottom.png'
+        };
 
+        let loadedCount = 0;
+        const totalAssets = Object.keys(assetList).length;
 
-document.addEventListener("DOMContentLoaded", () => {
-    (() => { // init
-        frame = document.querySelector("canvas");
-        frame.width = frameWidth;
-        frame.height = frameHeight;
-        birdY = frameHeight / 2;
-        context = frame.getContext("2d");
+        Object.entries(assetList).forEach(([key, src]) => {
+            const img = new Image();
+            img.onload = () => {
+                loadedCount++;
+                if (loadedCount === totalAssets) {
+                    this.assetsLoaded = true;
+                    this.startIdleAnimation();
+                }
+            };
+            img.onerror = () => {
+                console.error(`Failed to load image: ${src}`);
+                loadedCount++;
+                if (loadedCount === totalAssets) {
+                    this.assetsLoaded = true;
+                    this.startIdleAnimation();
+                }
+            };
+            img.src = src;
+            this.images[key] = img;
+        });
+    }
 
-        let font = new FontFace("Score", 'url("fonts/PixelGame-R9AZe.otf")');
-        document.fonts.add(font);
-        font.load().then(() => {
-            context.font = `${fontsize}px Score`;
-            context.save();
-        })
-        context.fillStyle = "#ffffff";
-        context.strokeStyle = "#000000";
+    setupCanvas() {
+        this.canvas = document.getElementById('frame');
+        this.canvas.width = this.frameWidth;
+        this.canvas.height = this.frameHeight;
+        this.ctx = this.canvas.getContext('2d');
+        
+        // Enable image smoothing for better quality
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'high';
+    }
 
-        const heading = document.createElement("h2");
-        heading.id = "initialStartHeading";
-        heading.textContent = "Click to start!";
-        heading.style.fontSize = "3rem";
-        heading.style.color = "#fff";
-        heading.style.textAlign = "center";
-        heading.style.position = "absolute";
-        heading.style.top = "30%";
-        heading.style.left = "50%";
-        heading.style.transform = "translate(-50%, -50%)";
-        heading.style.maxWidth = "100%";
-        heading.style.whiteSpace = "nowrap";
-        heading.style.overflow = "hidden";
-        heading.style.textOverflow = "ellipsis";
-        heading.style.fontFamily = "'Arial', sans-serif";
+    setupEventListeners() {
+        // Click and touch events
+        document.addEventListener('click', (e) => this.handleInput(e));
+        document.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this.handleInput(e);
+        });
+        
+        // Keyboard events
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.key === ' ') {
+                e.preventDefault();
+                this.handleInput(e);
+            }
+        });
+        
+        // Button events
+        document.getElementById('start-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.startGame();
+        });
+        
+        document.getElementById('restart-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.restartGame();
+        });
+        
+        document.getElementById('menu-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showTitleScreen();
+        });
+    }
 
-        heading.style.opacity = "0";
-        heading.style.transition = "opacity .5s";
+    handleInput(e) {
+        if (this.gameState === 'title') {
+            // Don't start on button click
+            if (e.target.tagName === 'BUTTON') return;
+        } else if (this.gameState === 'playing') {
+            this.jump();
+        }
+    }
 
-        document.body.append(heading);
+    startGame() {
+        this.gameState = 'playing';
+        this.activeGame = true;
+        this.score = 0;
+        this.combo = 0;
+        this.birdY = this.frameHeight / 2;
+        this.birdYVelocity = 0;
+        this.birdRotation = 0;
+        this.pipes = [];
+        this.particles = [];
+        this.groundX = 0;
+        
+        this.showScreen('game-hud');
+        this.updateScore();
+        
+        // Start spawning pipes
+        this.randomPipeSet();
+        this.pipeInterval = setInterval(() => this.randomPipeSet(), 1330);
 
+        // Start render loop
+        this.renderInterval = setInterval(() => this.renderLoop(), 1000 / 75);
+    }
+
+    restartGame() {
+        this.startGame();
+    }
+
+    gameOver() {
+        clearInterval(this.renderInterval);
+        clearInterval(this.pipeInterval);
+        this.activeGame = false;
+        this.gameState = 'gameOver';
+        this.gravity = this.frameHeight * 0.0003225; // Reset gravity
+        this.pipeVelocity = this.frameHeight * 0.0035625; // Reset velocity
+        this.birdYVelocity = 0;
+        
+        // Update high score
+        if (this.score > this.highScore) {
+            this.highScore = this.score;
+            this.saveHighScore();
+            this.updateHighScoreDisplay();
+        }
+        
+        // Create explosion particles
+        this.createExplosion(this.birdX + this.birdWidth / 2, 
+                           this.birdY + this.birdHeight / 2, 20);
+        
+        // Show game over screen with delay
         setTimeout(() => {
-            heading.style.opacity = "1";
-        }, 1);
-
-    })();
-    (() => { // draw first frame
-        context.clearRect(0, 0, frameWidth, frameHeight);
-        context.drawImage(birdImage, birdX, birdY, birdWidth, birdHeight);
-    })();
-});
-
-
-document.addEventListener("keydown", (e) => {
-    if (!activeGame && !gameOverFlag) {
-        startGame();
-        clearInitialStartScreen();
+            this.showGameOverScreen();
+        }, 500);
     }
-    if (e.key === " " || e.code === "Space" && activeGame) jump();
-});
 
-document.addEventListener("click", () => {
-    if (!activeGame && !gameOverFlag) {
-        startGame();
-        clearInitialStartScreen();
+    showTitleScreen() {
+        this.gameState = 'title';
+        this.activeGame = false;
+        this.birdY = this.frameHeight / 2;
+        this.birdYVelocity = 0;
+        this.birdRotation = 0;
+        this.pipes = [];
+        this.particles = [];
+        this.gravity = this.frameHeight * 0.0003225;
+        this.pipeVelocity = this.frameHeight * 0.0035625;
+        
+        clearInterval(this.renderInterval);
+        clearInterval(this.pipeInterval);
+        
+        this.showScreen('title-screen');
+        
+        // Start idle animation
+        this.startIdleAnimation();
     }
-    if (activeGame) jump();
-});
 
+    initUI() {
+        this.updateHighScoreDisplay();
+    }
 
+    loadHighScore() {
+        const saved = localStorage.getItem('flappyBirdHighScore');
+        this.highScore = saved ? parseInt(saved, 10) : 0;
+    }
 
-const startGame = () => {
-    activeGame = true;
-    randomPipeSet();
-    pipeInterval = setInterval(randomPipeSet, 1330);
-    renderInterval = setInterval(() => renderLoop(), 1000 / 75);
-};
+    saveHighScore() {
+        localStorage.setItem('flappyBirdHighScore', this.highScore.toString());
+    }
 
-const gameOver = () => {
-    clearInterval(renderInterval);
-    clearInterval(pipeInterval);
-    activeGame = false;
-    gameOverFlag = true;
-    gravity = 0;
-    pipeVelocity = 0;
-    birdYVelocity = 0;
+    updateHighScoreDisplay() {
+        const highScoreElement = document.getElementById('high-score-value');
+        if (highScoreElement) {
+            highScoreElement.textContent = this.highScore;
+        }
+    }
 
-    gameOverScreen();
-};
+    showScreen(screenId) {
+        const screens = document.querySelectorAll('.screen');
+        screens.forEach(screen => screen.classList.remove('active'));
+        
+        const targetScreen = document.getElementById(screenId);
+        if (targetScreen) {
+            targetScreen.classList.add('active');
+        }
+    }
 
-const clearInitialStartScreen = () => {
-    const heading = document.getElementById("initialStartHeading");
-    heading.remove();
+    showGameOverScreen() {
+        document.getElementById('final-score').textContent = this.score;
+        document.getElementById('best-score').textContent = this.highScore;
+        this.showScreen('game-over-screen');
+    }
+
+    jump() {
+        if (this.activeGame) {
+            this.birdYVelocity = this.jumpStrength;
+            this.targetRotation = -25;
+        }
+    }
+
+    updateScore() {
+        const scoreElement = document.getElementById('current-score');
+        if (scoreElement) {
+            scoreElement.textContent = this.score;
+            scoreElement.style.animation = 'none';
+            setTimeout(() => {
+                scoreElement.style.animation = 'scorePopIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+            }, 10);
+        }
+    }
+
+    updateCombo() {
+        const comboElement = document.getElementById('combo-indicator');
+        if (comboElement && this.combo >= 3) {
+            comboElement.textContent = `${this.combo}x Combo!`;
+            comboElement.classList.add('active');
+        } else if (comboElement) {
+            comboElement.classList.remove('active');
+        }
+    }
+
+    // Game logic
+    randomPipeSet() {
+        const pipeSet = {
+            pipeTopX: this.frameWidth,
+            pipeTopY: this.getRandomIntInclusive(-this.pipeHeight * 0.8, -this.pipeHeight * 0.25),
+            pipePassed: false
+        };
+        this.pipes.push(pipeSet);
+    }
+
+    getRandomIntInclusive(min, max) {
+        const minCeiled = Math.ceil(min);
+        const maxFloored = Math.floor(max);
+        return Math.floor(Math.random() * (maxFloored - minCeiled + 1) + minCeiled);
+    }
+
+    checkCollision() {
+        const pipe = this.pipes[0];
+        if (
+            pipe &&
+            this.birdX + (this.birdWidth - this.tolerance) > pipe.pipeTopX &&
+            this.birdX < pipe.pipeTopX + (this.pipeWidth - this.tolerance) &&
+            (this.birdY < pipe.pipeTopY + (this.pipeHeight - this.tolerance) ||
+            this.birdY + (this.birdHeight - this.tolerance) > pipe.pipeTopY + this.pipeHeight + this.pipeOffset)
+        ) {
+            this.activeGame = false;
+        }
+    }
+
+    update() {
+        // Bird physics
+        this.birdYVelocity += this.gravity;
+        this.birdY += this.birdYVelocity;
+
+        // Smooth bird rotation
+        if (this.birdYVelocity > 0) {
+            this.targetRotation = Math.min(90, this.birdYVelocity * 5);
+        }
+        this.birdRotation += (this.targetRotation - this.birdRotation) * 0.1;
+
+        // Fade out bird glow
+        if (this.birdGlow > 0) {
+            this.birdGlow -= 0.03;
+            if (this.birdGlow < 0) this.birdGlow = 0;
+        }
+
+        // Ground animation
+        this.groundX -= this.pipeVelocity;
+        if (-1 * this.groundX >= this.frameWidth) {
+            this.groundX = 0;
+        }
+
+        // Remove off-screen pipes
+        if (this.pipes[0]?.pipeTopX + this.pipeWidth < 0) {
+            this.pipes.shift();
+        }
+
+        // Score when passing pipe
+        if (this.pipes[0]?.pipePassed === false && 
+            this.pipes[0]?.pipeTopX + this.pipeWidth < this.birdX) {
+            this.score++;
+            this.pipes[0].pipePassed = true;
+            this.updateScore();
+            
+            // Trigger bird glow effect
+            this.birdGlow = 1.0;
+            
+            // Show +1 text at bird's height
+            this.showPlusOne(this.pipes[0].pipeTopX + this.pipeWidth / 2, this.birdY + this.birdHeight / 2);
+            
+            // Combo system
+            const currentTime = Date.now();
+            if (currentTime - this.lastScoreTime < 2000) {
+                this.combo++;
+            } else {
+                this.combo = 1;
+            }
+            this.lastScoreTime = currentTime;
+            this.updateCombo();
+            
+            // Create clean star burst effect at bird's height
+            this.createStarBurst(this.pipes[0].pipeTopX + this.pipeWidth / 2, 
+                               this.birdY + this.birdHeight / 2, 8);
+        }
+
+        // Check collision
+        this.checkCollision();
+
+        // Move pipes
+        this.pipes.forEach((pipe) => (pipe.pipeTopX -= this.pipeVelocity));
+
+        // Ground collision
+        if (this.birdY + this.birdHeight + this.groundHeight > this.frameHeight) {
+            this.activeGame = false;
+        }
+
+        // Update particles
+        this.updateParticles();
+    }
+
+    draw() {
+        // Clear canvas
+        this.ctx.clearRect(0, 0, this.frameWidth, this.frameHeight);
+
+        // Draw bird with rotation and glow effect
+        this.ctx.save();
+        this.ctx.translate(
+            this.birdX + this.birdWidth / 2,
+            this.birdY + this.birdHeight / 2
+        );
+        this.ctx.rotate((this.birdRotation * Math.PI) / 180);
+        
+        // Apply glow effect if active
+        if (this.birdGlow > 0) {
+            this.ctx.shadowColor = '#FFE66D';
+            this.ctx.shadowBlur = 20 * this.birdGlow;
+            this.ctx.shadowOffsetX = 0;
+            this.ctx.shadowOffsetY = 0;
+        }
+        
+        if (this.images.bird.complete) {
+            this.ctx.drawImage(
+                this.images.bird,
+                -this.birdWidth / 2,
+                -this.birdHeight / 2,
+                this.birdWidth,
+                this.birdHeight
+            );
+        }
+        
+        // Reset shadow
+        this.ctx.shadowColor = 'transparent';
+        this.ctx.shadowBlur = 0;
+        
+        this.ctx.restore();
+
+        // Draw pipes
+        this.pipes.forEach((pipe) => {
+            if (this.images.pipeTop.complete) {
+                this.ctx.drawImage(
+                    this.images.pipeTop,
+                    pipe.pipeTopX,
+                    pipe.pipeTopY,
+                    this.pipeWidth,
+                    this.pipeHeight
+                );
+            }
+            if (this.images.pipeBottom.complete) {
+                this.ctx.drawImage(
+                    this.images.pipeBottom,
+                    pipe.pipeTopX,
+                    pipe.pipeTopY + this.pipeHeight + this.pipeOffset,
+                    this.pipeWidth,
+                    this.pipeHeight
+                );
+            }
+        });
+
+        // Draw ground
+        if (this.images.ground.complete) {
+            this.ctx.drawImage(
+                this.images.ground,
+                this.groundX,
+                this.frameHeight - this.groundHeight,
+                this.frameWidth,
+                this.groundHeight * 2
+            );
+            this.ctx.drawImage(
+                this.images.ground,
+                this.groundX + this.frameWidth - 1,
+                this.frameHeight - this.groundHeight,
+                this.frameWidth,
+                this.groundHeight * 2
+            );
+        }
+
+        // Draw particles
+        this.particles.forEach(particle => {
+            this.ctx.globalAlpha = particle.life;
+            this.ctx.fillStyle = particle.color;
+            this.ctx.beginPath();
+            this.ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+            this.ctx.fill();
+        });
+        this.ctx.globalAlpha = 1;
+    }
+
+    renderLoop() {
+        if (!this.activeGame) return this.gameOver();
+        this.update();
+        this.draw();
+    }
+
+    startIdleAnimation() {
+        const idleLoop = () => {
+            if (this.gameState !== 'title') return;
+            
+            this.birdY = this.frameHeight / 2 + Math.sin(Date.now() / 500) * 20;
+            
+            this.ctx.clearRect(0, 0, this.frameWidth, this.frameHeight);
+            
+            if (this.images.bird.complete) {
+                this.ctx.drawImage(
+                    this.images.bird,
+                    this.birdX,
+                    this.birdY,
+                    this.birdWidth,
+                    this.birdHeight
+                );
+            }
+            
+            if (this.images.ground.complete) {
+                this.ctx.drawImage(
+                    this.images.ground,
+                    0,
+                    this.frameHeight - this.groundHeight,
+                    this.frameWidth,
+                    this.groundHeight * 2
+                );
+            }
+            
+            requestAnimationFrame(idleLoop);
+        };
+        
+        requestAnimationFrame(idleLoop);
+    }
+
+    createParticles(x, y, count) {
+        for (let i = 0; i < count; i++) {
+            this.particles.push({
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 5,
+                vy: (Math.random() - 0.5) * 5 - 2,
+                life: 1.0,
+                size: Math.random() * 4 + 2,
+                color: `hsl(${Math.random() * 60 + 160}, 70%, 60%)`
+            });
+        }
+    }
+
+    createStarBurst(x, y, count) {
+        // Create star burst effect with clean lines
+        for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 * i) / count;
+            const speed = 6 + Math.random() * 3;
+            this.particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 1.0,
+                size: 3,
+                color: '#FFE66D', 
+                isStarBurst: true
+            });
+        }
+    }
+
+    showPlusOne(x, y) {
+        // Create DOM element for +1 text
+        const plusOneEl = document.createElement('div');
+        plusOneEl.className = 'plus-one-text';
+        plusOneEl.textContent = '+1';
+        plusOneEl.style.left = `${x}px`;
+        plusOneEl.style.top = `${y}px`;
+        
+        const container = document.getElementById('ui-overlay');
+        if (container) {
+            container.appendChild(plusOneEl);
+            
+            // Remove element after animation
+            setTimeout(() => {
+                plusOneEl.remove();
+            }, 800);
+        }
+    }
+
+    createExplosion(x, y, count) {
+        for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 * i) / count;
+            this.particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * 8,
+                vy: Math.sin(angle) * 8,
+                life: 1.0,
+                size: Math.random() * 6 + 3,
+                color: `hsl(${Math.random() * 40}, 80%, 60%)`
+            });
+        }
+    }
+
+    updateParticles() {
+        this.particles = this.particles.filter(particle => {
+            particle.x += particle.vx;
+            particle.y += particle.vy;
+            
+            // Star burst particles fade out smoothly
+            if (particle.isStarBurst) {
+                particle.vx *= 0.95; // Slow down
+                particle.vy *= 0.95;
+                particle.life -= 0.03;
+            } else {
+                particle.vy += 0.2;
+                particle.life -= 0.02;
+            }
+            
+            return particle.life > 0;
+        });
+    }
+
+    loadAssets() {
+        const assetList = {
+            bird: 'img/bird.png',
+            ground: 'img/ground.png',
+            pipeTop: 'img/pipe_top.png',
+            pipeBottom: 'img/pipe_bottom.png'
+        };
+
+        let loadedCount = 0;
+        const totalAssets = Object.keys(assetList).length;
+
+        Object.entries(assetList).forEach(([key, src]) => {
+            const img = new Image();
+            img.onload = () => {
+                loadedCount++;
+                if (loadedCount === totalAssets) {
+                    this.assetsLoaded = true;
+                    this.startIdleAnimation();
+                }
+            };
+            img.onerror = () => {
+                console.error(`Failed to load image: ${src}`);
+                loadedCount++;
+                if (loadedCount === totalAssets) {
+                    this.assetsLoaded = true;
+                    this.startIdleAnimation();
+                }
+            };
+            img.src = src;
+            this.images[key] = img;
+        });
+    }
 }
 
-const gameOverScreen = () => {
-    if (document.getElementById("container")) return;
-
-    const container = document.createElement("div");
-    const heading = document.createElement("h2");
-    const button = document.createElement("button");
-
-    container.id = "container";
-    container.style.opacity = "0";
-    container.style.transition = "opacity .5s";
-    container.style.position = "absolute";
-    container.style.top = "50%";
-    container.style.left = "50%";
-    container.style.transform = "translate(-50%, -50%)";
-    container.style.display = "flex";
-    container.style.flexDirection = "column";
-    container.style.alignItems = "center";
-    container.style.justifyContent = "center";
-    container.style.padding = "2rem";
-    container.style.backgroundColor = "rgba(0, 0, 0, 0.69)";
-    container.style.borderRadius = "5%";
-    container.style.textAlign = "center";
-
-    heading.textContent = "Game Over";
-    heading.style.fontSize = "3rem";
-    heading.style.letterSpacing = ".25rem";
-    heading.style.color = "#fff";
-    heading.style.marginBottom = "20px";
-    heading.style.fontFamily = "'Arial', sans-serif";
-
-    button.textContent = "Restart";
-    button.style.fontSize = "2rem";
-    button.style.color = "#070";
-    button.style.backgroundColor = "#0f0";
-    button.style.border = "none";
-    button.style.borderRadius = "5px";
-    button.style.padding = "10px 20px";
-    button.style.cursor = "pointer";
-    button.style.boxShadow = "0 3px 6px rgba(0, 0, 0, 0.3)";
-    button.style.transition = "transform 0.5s";
-    button.onclick = restart;
-
-    container.append(heading, button);
-    document.body.append(container);
-
-    setTimeout(() => { // bez toho nefunguje transition protoze to potrebuje malej timeout
-        container.style.opacity = "1";
-    }, 1);
-};
-
-const restart = () => {
-    location.reload();
-}
-
-const checkCollision = () => {
-    const pipe = pipeSets[0];
-    if (
-        pipe &&
-        birdX + (birdWidth - tolerance) > pipe.pipeTopX &&
-        birdX < pipe.pipeTopX + (pipeWidth - tolerance) &&
-        (birdY < pipe.pipeTopY + (pipeHeight - tolerance) ||
-        birdY + (birdHeight - tolerance) > pipe.pipeTopY + pipeHeight + pipeOffset)
-    ) activeGame = false;
-};
-
-//tohle jsem prepsal protoze pri zmacknuti restartu to zaroven jumplo
-const jump = () => {
-    if (!restartJumpIgnore) {
-        birdYVelocity = jumpStrength;
-    }
-    else {
-        restartJumpIgnore = false;
-    }
-}
-
-const update = () => {
-    birdYVelocity += gravity;
-    birdY += birdYVelocity;
-
-    groundX -= pipeVelocity;
-    if (-1 * groundX >= frameWidth) {
-        groundX = 0;
-    }
-
-
-
-    pipeSets[0]?.pipeTopX + pipeWidth < 0 && pipeSets.shift();
-    if (pipeSets[0]?.pipePassed == false && pipeSets[0]?.pipeTopX + pipeWidth < birdX) {
-        score++;
-        pipeSets[0].pipePassed = true;
-        console.log(score);
-    }
-
-    checkCollision();
-
-    pipeSets.forEach((pipe) => (pipe.pipeTopX -= pipeVelocity));
-
-    if (birdY + birdHeight + groundHeight > frameHeight) activeGame = false;
-};
-
-const draw = () => {
-    context.clearRect(0, 0, frameWidth, frameHeight);
-    context.drawImage(birdImage, birdX, birdY, birdWidth, birdHeight);
-
-
-
-    pipeSets.forEach((pipe) => {
-        context.drawImage(pipetop, pipe.pipeTopX, pipe.pipeTopY, pipeWidth, pipeHeight);
-        context.drawImage(pipebottom, pipe.pipeTopX, pipe.pipeTopY + pipeHeight + pipeOffset, pipeWidth, pipeHeight);
+// Initialize game when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        window.game = new Game();
     });
-
-    context.drawImage(groundImage, groundX, frameHeight - groundHeight, frameWidth, groundHeight * 2)
-    context.drawImage(groundImage, groundX + frameWidth - 1, frameHeight - groundHeight, frameWidth, groundHeight * 2)
-
-    context.fillText(score.toString(), frameWidth / 2 - (score.toString().length * fontsize) / 5.2, frameHeight / 4);
-    context.strokeText(score.toString(), frameWidth / 2 - (score.toString().length * fontsize) / 5.2, frameHeight / 4);
-};
-
-
-const renderLoop = () => {
-    if (!activeGame) return gameOver();
-    update();
-    draw();
-};
+} else {
+    window.game = new Game();
+}

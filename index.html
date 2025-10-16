@@ -3,13 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flappy Bird SPŠ</title>
+    <title>Flappy Bird</title>
+    <link rel="icon" type="image/x-icon" href="img/bird.png"/>
     <link rel="stylesheet" href="index.css"/>
-    <script src="game.js"></script>
-    <script src="pipes.js"></script>
-    <script src="refreshRate.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <canvas id="frame"></canvas>
+    <div id="game-container">
+        <canvas id="frame"></canvas>
+        <div id="ui-overlay">
+            <div id="title-screen" class="screen active">
+                <div class="title-content">
+                    <h1 class="game-title">
+                        <span class="title-word">Flappy Bird</span>
+                    </h1>
+                    <button class="start-btn" id="start-btn">
+                        <span>Play</span>
+                    </button>
+                    <div class="high-score-display">
+                        <span class="value" id="high-score-value">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="game-hud" class="screen">
+                <div class="score-container">
+                    <div class="score-value" id="current-score">0</div>
+                    <div class="combo-indicator" id="combo-indicator"></div>
+                </div>
+            </div>
+            
+            <div id="game-over-screen" class="screen">
+                <div class="game-over-content">
+                    <h2 class="game-over-title">Game Over</h2>
+                    <div class="score-board">
+                        <div class="score-item">
+                            <span class="label">Score</span>
+                            <span class="value" id="final-score">0</span>
+                        </div>
+                        <div class="score-item highlight">
+                            <span class="label">Best</span>
+                            <span class="value" id="best-score">0</span>
+                        </div>
+                    </div>
+                    <div class="game-over-buttons">
+                        <button class="game-btn restart-btn" id="restart-btn">
+                            <span>PLAY AGAIN</span>
+                        </button>
+                        <button class="game-btn menu-btn" id="menu-btn">
+                            <span>MENU</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="pause-screen" class="screen">
+                <div class="pause-content">
+                    <h2 class="pause-title">Paused</h2>
+                    <button class="game-btn resume-btn" id="resume-btn">
+                        <span>RESUME</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="game.js" type="module"></script>
 </body>
 </html>
